@@ -1,0 +1,17 @@
+# mac-cleaner user config
+# Copy this file to ~/.config/mac-cleaner/config and edit it.
+#
+# The config file is loaded as a shell fragment. Keep values simple and trusted.
+
+# Use a conservative age threshold by default.
+OLDER_THAN_DAYS=30
+
+# Output detail.
+VERBOSE=1
+SHOW_FILES=0
+
+# Keep high-impact cleanup opt-in by default.
+INCLUDE_DOWNLOADS=0
+INCLUDE_DOCKER=0
+INCLUDE_XCODE_ARCHIVES=0
+EMPTY_TRASH=0

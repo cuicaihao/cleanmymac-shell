@@ -1,0 +1,16 @@
+# macOS system files
+.DS_Store
+
+# Log files
+*.log
+log/mac-cleaner.log
+
+# Temporary/Backup files
+*.tmp
+*.bak
+*~
+
+# Script-generated plan files
+mac-cleaner-plan.*
+mac-cleaner-groups.*
+mac-cleaner-skipped.*
