@@ -1,10 +1,12 @@
-# Mac-Cleaner Shell Script: Safe, Interactive macOS Cleanup
+# mac-cleaner: Safe, Review-First macOS Cleanup
 
 ![mac-cleaner](mac-cleaner.webp)
 
-`mac-cleaner` is a conservative macOS cleanup script inspired by common CleanMyMac-style maintenance tasks. It focuses on cache, log, temporary, developer, Trash, Downloads, and optional Docker cleanup, with dry-run first and recoverable moves to Trash.
+`mac-cleaner` is a conservative macOS cleanup script inspired by common CleanMyMac-style maintenance tasks. It focuses on old caches, logs, temporary files, developer caches, and opt-in cleanup areas such as Downloads, Trash, Docker, and Xcode archives.
 
-The script defaults to dry-run mode. It scans first, builds a sorted cleanup plan, estimates risk by cleanup group, and prints what can be cleaned before moving anything. Execute mode shows each cleanup group with file names and total size, then asks `y/N` before moving files to a recovery folder in `~/.Trash`. The default answer is No.
+The default is safe: it scans only, prints a review plan, and writes a commented cleanup script. Execute mode never permanently deletes files; approved items are moved into a timestamped recovery folder under `~/.Trash`.
+
+**Keywords**: macOS cleanup, cache cleaner, log cleanup, dry run, interactive shell script, safe delete, Trash recovery, developer caches, Docker prune, Xcode cleanup.
 
 ## Quick Start
 
@@ -21,27 +23,77 @@ mkdir -p ~/.config/mac-cleaner
 cp examples/mac-cleaner.config.example ~/.config/mac-cleaner/config
 ```
 
-Always begin with a dry run. This scans and prints the cleanup plan without moving anything:
+Always start with a dry run:
 
 ```bash
 mac-cleaner --verbose
 ```
 
-Read the output carefully. Check cleanup groups, total sizes, and any paths that look personal, project-specific, or surprising. For a full file-by-file review, run:
+Dry-run mode does three things:
+
+- Prints a cleanup plan grouped by risk and category.
+- Shows how many items and how much space could be cleaned.
+- Writes `./clean.sh` with commented `rm -rf` lines for manual review.
+
+If `clean.sh` already exists, the script writes a timestamped `clean-*.sh` file instead. Nothing in the generated file runs until you edit it yourself.
+
+For a full file-by-file review:
 
 ```bash
 mac-cleaner --show-files
 ```
 
-Only after the dry-run output looks safe, run interactive execute mode:
+For a guided flow:
+
+```bash
+mac-cleaner --interactive
+```
+
+Interactive mode asks which optional areas to scan, how much detail to show, and whether to continue into execute mode after review.
+
+When the plan looks safe:
 
 ```bash
 mac-cleaner --execute
 ```
 
-Execute mode shows each group again, asks `y/N`, and defaults to No. Approved files are moved into a timestamped recovery folder under `~/.Trash`, not permanently deleted.
+Execute mode shows each group again, asks `y/N/q`, and defaults to No. Approved files are moved to `~/.Trash/mac-cleaner-*`, not permanently deleted. Type `q` to stop reviewing the remaining groups.
 
 Be careful and vigilant with cleanup tools. Do not approve a group just because it is listed; approve it only when you understand what will be moved.
+
+## Output Summary
+
+Every run ends with a summary like this:
+
+```text
+== Final summary ==
+Scan found 12 item(s) that can be removed, totaling 2.4 GB. Actually moved 8 item(s), totaling 1.9 GB.
+
+Result                                  Items           Size
+-------------------------------- ------------ --------------
+Can be removed                             12         2.4 GB
+Actually moved                              8         1.9 GB
+```
+
+In dry-run mode, `Actually moved` is always `0`.
+
+## Generated clean.sh
+
+Dry-run mode writes a review script:
+
+```bash
+# == User cache contents older than threshold [low risk] ==
+# Size: 4.0 KB
+# rm -rf -- /Users/you/Library/Caches/example
+```
+
+The `rm -rf` lines are commented on purpose. To use the generated script, review each path, uncomment only the lines you approve, and run it manually:
+
+```bash
+bash clean.sh
+```
+
+This manual script is separate from `--execute`. The built-in execute mode is safer because it moves files to a recovery folder first.
 
 ## Repository Layout
 
@@ -60,6 +112,7 @@ Be careful and vigilant with cleanup tools. Do not approve a group just because 
 - `examples/mac-cleaner.config.example`: a safe starter config to copy into your user config directory.
 - Runtime logs are not stored in the repository. They live at `${XDG_STATE_HOME:-$HOME/.local/state}/mac-cleaner/mac-cleaner.log`.
 - Recovery folders are created under `~/.Trash/mac-cleaner-*` during execute mode.
+- Dry-run review scripts are generated as `clean.sh` or `clean-*.sh` and ignored by Git.
 
 ## Configuration
 
@@ -110,8 +163,10 @@ A `Makefile` is provided for easy installation and removal:
 ## Useful Options
 
 ```bash
-mac-cleaner --dry-run --older-than 30 --include-downloads --verbose
+mac-cleaner --verbose
 mac-cleaner --show-files
+mac-cleaner --interactive
+mac-cleaner --dry-run --older-than 30 --include-downloads --verbose
 mac-cleaner --clean-log
 mac-cleaner --execute --empty-trash
 mac-cleaner --execute --include-docker
@@ -133,52 +188,37 @@ mac-cleaner --execute --include-xcode-archives
 ## Review Workflow
 
 1. Run dry-run mode first: `mac-cleaner --verbose`.
-2. Use `mac-cleaner --show-files` when you need to inspect every matched path.
-3. Check item counts, estimated sizes, risk labels, and file names before executing.
-4. Re-run with `--execute` only after the cleanup plan looks safe.
-5. In execute mode, review each group's file list and total size.
-6. Answer `y` only for groups you understand. Pressing Enter skips the group.
-7. Review the recovery folder in `~/.Trash/mac-cleaner-*` before emptying Trash.
+2. Review the terminal cleanup plan.
+3. Use `mac-cleaner --show-files` when you need to inspect every matched path.
+4. Optionally review generated `clean.sh`; all `rm -rf` lines are commented.
+5. Use `mac-cleaner --interactive` when you want guided scan choices and an execute prompt after review.
+6. Run `mac-cleaner --execute` only after the cleanup plan looks safe.
+7. In execute mode, answer `y` only for groups you understand. Pressing Enter skips the group; `q` stops the remaining group review.
+8. Review the recovery folder in `~/.Trash/mac-cleaner-*` before emptying Trash.
 
 ## Logic Flow
 
 ```mermaid
 flowchart TD
-    A[🚀 Start mac-cleaner] --> B[⚙️ Load user config]
-    B --> C[🧭 Parse CLI options]
-    C --> D{🧹 --clean-log?}
-    D -->|yes| E[📝 Empty mac-cleaner log and exit]
-    D -->|no| F[📋 Create temp plan files]
-
-    F --> G[🔎 Scan safe default locations]
-    G --> H[🛠️ Scan developer caches]
-    H --> I{📦 Optional groups enabled?}
-    I -->|yes| J[⚠️ Scan Downloads, Trash, Xcode archives]
-    I -->|no| K[⏭️ Record skipped optional groups]
-    J --> L[📋 Print cleanup plan]
-    K --> L
-
-    L --> M{▶️ --execute?}
-    M -->|no| N[📊 Print skipped groups, summary, next dry-run guidance]
-    M -->|yes| O[👀 Show each group with files and total size]
-    O --> P{✅ User confirms y?}
-    P -->|no default| Q[⏭️ Skip group]
-    P -->|yes| R[🗑️ Move approved files to ~/.Trash/mac-cleaner-*]
-    Q --> S{🔁 More groups?}
-    R --> S
-    S -->|yes| O
-    S -->|no| T{🐳 --include-docker?}
-
-    T -->|yes| U{⚠️ Confirm PRUNE?}
-    U -->|yes| V[🐳 Run Docker prune commands]
-    U -->|no default| W[⏭️ Skip Docker cleanup]
-    T -->|no| X[⏭️ Record Docker as skipped]
-
-    V --> Y[📊 Print skipped groups and final summary]
-    W --> Y
-    X --> Y
-    N --> Z[🏁 End]
-    Y --> Z
+    A[🚀 Start] --> B[⚙️ Load config and options]
+    B --> C{🧭 Interactive?}
+    C -->|yes| D[💬 Ask scan choices and detail level]
+    C -->|no| E[📌 Use config and flags]
+    D --> F[🔎 Scan cleanup candidates]
+    E --> F
+    F --> G[📋 Print cleanup plan]
+    G --> H{🧪 Dry run?}
+    H -->|yes| I[📝 Write commented clean.sh]
+    I --> J[📊 Print summary and next steps]
+    H -->|no| K[✅ Ask before each cleanup group]
+    K --> L[🗑️ Move approved files to ~/.Trash]
+    L --> M{🐳 Docker included?}
+    M -->|yes| N[⚠️ Confirm PRUNE before Docker cleanup]
+    M -->|no| O[⏭️ Skip Docker cleanup]
+    N --> P[📊 Print final summary]
+    O --> P
+    J --> Q[🏁 End]
+    P --> Q
 ```
 
 ## Safety Notes
@@ -187,7 +227,10 @@ flowchart TD
 - It does not require administrator privileges.
 - `~/Downloads`, `~/.Trash`, Docker cleanup, and Xcode Organizer archives are opt-in.
 - Execute mode moves files to `~/.Trash/mac-cleaner-*` first instead of permanently deleting them.
-- Interactive execute mode requires typing `y` before each group is moved; the default is No.
+- Interactive mode (`--interactive`) guides scan choices before the dry run and can continue into execute mode after review.
+- Dry-run `clean.sh` is intentionally not active by default. Every `rm -rf` command is commented so you must review and edit it manually.
+- Generated `clean.sh` uses permanent `rm -rf`; built-in `--execute` is recoverable because it moves files to Trash first.
+- Execute mode requires typing `y` before each group is moved; the default is No. Type `q` to stop reviewing remaining groups.
 - `--yes` can skip low/medium-risk prompts in trusted automation. High-risk groups still ask.
 - Docker cleanup is separate and permanent. In interactive execute mode, it requires typing `PRUNE`.
 - Be extra careful with `--include-downloads`, `--empty-trash`, `--include-docker`, and `--include-xcode-archives`.
