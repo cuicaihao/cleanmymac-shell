@@ -78,13 +78,46 @@ Notes:
 EOF
 }
 
-# Logging is best-effort: cleanup scans should not fail just because the log
-# directory cannot be created or written.
+# Logging is best-effort and privacy-aware: terminal output can show exact
+# paths for review, but persistent logs should not retain local path details.
+redact_log_message() {
+  local msg="$1"
+  local log_dir=""
+  if [[ -n "${LOG_FILE:-}" ]]; then
+    log_dir="$(dirname "$LOG_FILE")"
+  fi
+
+  if [[ "$msg" == *"$HOME_DIR"* ||
+    "$msg" == *"${TMPDIR:-/tmp}"* ||
+    ( -n "$QUARANTINE_ROOT" && "$msg" == *"$QUARANTINE_ROOT"* ) ||
+    ( -n "${LOG_FILE:-}" && "$msg" == *"$LOG_FILE"* ) ||
+    ( -n "$log_dir" && "$msg" == *"$log_dir"* ) ]]; then
+    printf 'Path details omitted from persistent log for privacy.'
+    return
+  fi
+
+  printf '%s' "$msg"
+}
+
+append_log() {
+  local msg="$1"
+  local log_dir
+  log_dir="$(dirname "$LOG_FILE")"
+
+  {
+    mkdir -p "$log_dir" &&
+      chmod 700 "$log_dir" 2>/dev/null || true
+    touch "$LOG_FILE" &&
+      chmod 600 "$LOG_FILE" 2>/dev/null || true
+    printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$(redact_log_message "$msg")" >> "$LOG_FILE"
+  } 2>/dev/null || true
+}
+
 log() {
   local msg="$*"
   printf '%s\n' "$msg"
   if [[ -n "${LOG_FILE:-}" ]]; then
-    { mkdir -p "$(dirname "$LOG_FILE")" && printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$msg" >> "$LOG_FILE"; } 2>/dev/null || true
+    append_log "$msg"
   fi
 }
 
@@ -92,7 +125,7 @@ warn() {
   local msg="$*"
   printf 'Warning: %s\n' "$msg" >&2
   if [[ -n "${LOG_FILE:-}" ]]; then
-    { mkdir -p "$(dirname "$LOG_FILE")" && printf '[%s] WARNING: %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$msg" >> "$LOG_FILE"; } 2>/dev/null || true
+    append_log "WARNING: $msg"
   fi
 }
 

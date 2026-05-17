@@ -1,6 +1,8 @@
-# mac-cleaner
+# Mac-Cleaner Shell Script: Safe, Interactive macOS Cleanup
 
-A conservative macOS cleanup script inspired by common CleanMyMac-style maintenance tasks. It focuses on cache, log, temporary, developer, Trash, Downloads, and optional Docker cleanup.
+![mac-cleaner](mac-cleaner.webp)
+
+`mac-cleaner` is a conservative macOS cleanup script inspired by common CleanMyMac-style maintenance tasks. It focuses on cache, log, temporary, developer, Trash, Downloads, and optional Docker cleanup, with dry-run first and recoverable moves to Trash.
 
 The script defaults to dry-run mode. It scans first, builds a sorted cleanup plan, estimates risk by cleanup group, and prints what can be cleaned before moving anything. Execute mode shows each cleanup group with file names and total size, then asks `y/N` before moving files to a recovery folder in `~/.Trash`. The default answer is No.
 
@@ -71,6 +73,7 @@ cp examples/mac-cleaner.config.example ~/.config/mac-cleaner/config
 ```
 
 Example `~/.config/mac-cleaner/config`:
+
 ```bash
 OLDER_THAN_DAYS=30
 VERBOSE=1
@@ -87,6 +90,8 @@ The config file is loaded as a shell fragment, so only use values you trust.
 ## Logging
 
 The script maintains a persistent log of its actions at `${XDG_STATE_HOME:-$HOME/.local/state}/mac-cleaner/mac-cleaner.log`.
+
+The persistent log is privacy-aware: exact local paths are shown in terminal output for review, but path details are omitted from the saved log. The log directory is created with owner-only permissions when possible.
 
 To empty the log without running a cleanup scan:
 
@@ -188,3 +193,7 @@ flowchart TD
 - Be extra careful with `--include-downloads`, `--empty-trash`, `--include-docker`, and `--include-xcode-archives`.
 - Xcode Organizer archives can contain release builds, dSYMs, and submission history. Review dry-run output before including them.
 - Always run a dry run first and read the output before using `--execute`.
+
+## License
+
+MIT License. See [LICENSE](LICENSE).
