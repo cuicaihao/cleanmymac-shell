@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create GitHub release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install ShellCheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: Run checks
+        run: make check
+
+      - name: Verify tag matches script version
+        run: |
+          script_version="$(sed -n 's/^VERSION="\([^"]*\)"/\1/p' mac-cleaner.sh)"
+          tag_version="${GITHUB_REF_NAME#v}"
+
+          if [ "$script_version" != "$tag_version" ]; then
+            echo "Tag v${tag_version} does not match script VERSION=${script_version}"
+            exit 1
+          fi
+
+      - name: Package script
+        run: |
+          mkdir -p dist
+          cp mac-cleaner.sh dist/mac-cleaner
+          chmod 755 dist/mac-cleaner
+          tar -czf "dist/mac-cleaner.tar.gz" -C dist mac-cleaner
+          cp "dist/mac-cleaner.tar.gz" "dist/mac-cleaner-${GITHUB_REF_NAME}.tar.gz"
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            "dist/mac-cleaner.tar.gz" \
+            "dist/mac-cleaner-${GITHUB_REF_NAME}.tar.gz" \
+            --generate-notes \
+            --title "$GITHUB_REF_NAME"
