@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="1.0.0"
+VERSION="1.1.0"
 DRY_RUN=1
 OLDER_THAN_DAYS=14
 INCLUDE_DOWNLOADS=0
