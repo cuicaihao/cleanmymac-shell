@@ -14,8 +14,44 @@ SHOW_FILES=0
 YES=0
 CLEAN_LOG=0
 ABORT_EXECUTION=0
+COLOR_DISABLED=0
 
 HOME_DIR="${HOME}"
+
+# Color codes (ANSI escape sequences, empty by default)
+COLOR_RESET=""
+COLOR_BOLD=""
+COLOR_DIM=""
+COLOR_RED=""
+COLOR_GREEN=""
+COLOR_YELLOW=""
+COLOR_BLUE=""
+COLOR_MAGENTA=""
+COLOR_CYAN=""
+
+enable_color() {
+  COLOR_RESET=$'\e[0m'
+  COLOR_BOLD=$'\e[1m'
+  COLOR_DIM=$'\e[90m'     # Dim (Gray)
+  COLOR_RED=$'\e[31m'
+  COLOR_GREEN=$'\e[32m'
+  COLOR_YELLOW=$'\e[33m'
+  COLOR_BLUE=$'\e[34m'
+  COLOR_MAGENTA=$'\e[35m'
+  COLOR_CYAN=$'\e[36m'
+}
+
+disable_color() {
+  COLOR_RESET=""
+  COLOR_BOLD=""
+  COLOR_DIM=""
+  COLOR_RED=""
+  COLOR_GREEN=""
+  COLOR_YELLOW=""
+  COLOR_BLUE=""
+  COLOR_MAGENTA=""
+  COLOR_CYAN=""
+}
 
 # Runtime state. These are intentionally not user-configurable.
 TOTAL_BYTES=0
@@ -45,42 +81,46 @@ load_config() {
 
 # User-visible help text. Keep this aligned with README examples.
 usage() {
-  cat <<'EOF'
-mac-cleaner.sh - conservative macOS cleanup helper
+  cat <<EOF
+${COLOR_BOLD}mac-cleaner${COLOR_RESET} - conservative macOS cleanup helper
 
-Usage:
+${COLOR_BOLD}Usage:${COLOR_RESET}
   ./mac-cleaner.sh [options]
 
-Default behavior:
+${COLOR_BOLD}Default behavior:${COLOR_RESET}
   Scans first, builds a sorted cleanup plan, and prints what can be cleaned.
 
-Options:
-  --execute             Move selected files to a recovery folder in ~/.Trash.
-  --dry-run             Preview only. This is the default.
-                        Also writes a commented clean.sh review script.
-  --older-than DAYS     Only remove age-based files older than DAYS. Default: 14.
-  --include-downloads   Include old files from ~/Downloads.
-  --include-xcode-archives
-                        Include old Xcode Organizer archives.
-  --empty-trash         Include ~/.Trash contents in the scan.
-  --include-docker      Run Docker prune commands if Docker is installed.
-  --interactive         Guided setup and review prompts.
-  --yes                 Skip low/medium-risk prompts. High-risk groups still ask.
-  --verbose             Print compact grouped details.
-  --show-files          Print every matched file path.
-  --clean-log           Empty the mac-cleaner log file and exit.
-  --version             Print version.
-  -h, --help            Show this help.
+${COLOR_BOLD}Modes:${COLOR_RESET}
+  -e, --execute             Move selected files to a recovery folder in ~/.Trash.
+  -d, --dry-run             Preview only. This is the default.
+                            Also writes a commented clean.sh review script.
+  -i, --interactive         Guided setup and review prompts.
 
-Examples:
+${COLOR_BOLD}Scan Filters:${COLOR_RESET}
+  -o, --older-than DAYS     Only include files older than DAYS. [default: 14]
+  --include-downloads       Include old files from ~/Downloads.
+  --include-xcode-archives  Include old Xcode Organizer archives.
+  --empty-trash             Include ~/.Trash contents in the scan.
+  --include-docker          Include Docker prune review if Docker is installed.
+
+${COLOR_BOLD}Output & Configuration:${COLOR_RESET}
+  -v, --verbose             Print compact grouped details (tree layout).
+  -s, --show-files          Print every matched file path.
+  -n, --no-color            Disable colorized console output.
+  -y, --yes                 Skip low/medium-risk prompts. High-risk groups still ask.
+  --clean-log               Empty the mac-cleaner log file and exit.
+  -V, --version             Print version.
+  -h, --help                Show this help.
+
+${COLOR_BOLD}Examples:${COLOR_RESET}
   ./mac-cleaner.sh
-  ./mac-cleaner.sh --older-than 30 --include-downloads
-  ./mac-cleaner.sh --interactive
-  ./mac-cleaner.sh --execute --empty-trash
+  ./mac-cleaner.sh -o 30 --include-downloads
+  ./mac-cleaner.sh -i
+  ./mac-cleaner.sh -e --empty-trash
 
-Notes:
+${COLOR_BOLD}Notes:${COLOR_RESET}
   This script avoids protected system folders and defaults to preview mode.
-  Use --verbose for human-friendly detail and --show-files for full paths.
+  Use -v/--verbose for human-friendly detail and -s/--show-files for full paths.
   Dry-run mode writes ./clean.sh with commented rm -rf lines for review.
   Execute mode shows each group, then asks before moving files.
   Files are moved to ~/.Trash/mac-cleaner-* first, not permanently deleted.
@@ -91,19 +131,38 @@ EOF
 # paths for review, but persistent logs should not retain local path details.
 redact_log_message() {
   local msg="$1"
-  local log_dir=""
-  if [[ -n "${LOG_FILE:-}" ]]; then
-    log_dir="$(dirname "$LOG_FILE")"
-  fi
+  # Strip ANSI color escape codes before saving to logs
+  msg="$(printf '%s' "$msg" | sed 's/\x1b\[[0-9;]*m//g')"
 
-  if [[ "$msg" == *"$HOME_DIR"* ||
-    "$msg" == *"${TMPDIR:-/tmp}"* ||
-    ( -n "$QUARANTINE_ROOT" && "$msg" == *"$QUARANTINE_ROOT"* ) ||
-    ( -n "${LOG_FILE:-}" && "$msg" == *"$LOG_FILE"* ) ||
-    ( -n "$log_dir" && "$msg" == *"$log_dir"* ) ]]; then
-    printf 'Path details omitted from persistent log for privacy.'
-    return
+  if [[ -n "${QUARANTINE_ROOT:-}" ]]; then
+    msg="${msg//"$QUARANTINE_ROOT"/<QUARANTINE_ROOT>}"
   fi
+  if [[ -n "${LOG_FILE:-}" ]]; then
+    msg="${msg//"$LOG_FILE"/<LOG_FILE>}"
+    local log_dir
+    log_dir="$(dirname "$LOG_FILE")"
+    msg="${msg//"$log_dir"/<LOG_DIR>}"
+  fi
+  local clean_tmp="${TMPDIR:-/tmp}"
+  clean_tmp="${clean_tmp%/}"
+  if [[ -n "$clean_tmp" ]]; then
+    msg="${msg//"$clean_tmp"/<TMPDIR>}"
+  fi
+  msg="${msg//"$HOME_DIR"/~}"
+
+  # Redact specific user file and directory detail components to prevent leaks
+  msg="$(printf '%s' "$msg" | sed -E \
+    -e 's|Failed to move .* to [^:]+|Failed to move <path> to <target>|g' \
+    -e 's|~/Downloads/.*|~/Downloads/<redacted>|g' \
+    -e 's|~/\.Trash/.*|~/\.Trash/<redacted>|g' \
+    -e 's|~/\.cache/([^/]+)/.*|~/\.cache/\1/<redacted>|g' \
+    -e 's|~/Library/Caches/([^/]+)/.*|~/Library/Caches/\1/<redacted>|g' \
+    -e 's|~/Library/Logs/([^/]+)/.*|~/Library/Logs/\1/<redacted>|g' \
+    -e 's|~/Library/Application Support/([^/]+)/.*|~/Library/Application Support/\1/<redacted>|g' \
+    -e 's|~/Library/Developer/Xcode/Archives/.*|~/Library/Developer/Xcode/Archives/<redacted>|g' \
+    -e 's|~/Library/Developer/CoreSimulator/Caches/.*|~/Library/Developer/CoreSimulator/Caches/<redacted>|g' \
+    -e 's|~/Library/Containers/.*|~/Library/Containers/<redacted>|g' \
+    -e 's|~/([^/]+)/.*|~/\1/<redacted>|g')"
 
   printf '%s' "$msg"
 }
@@ -132,7 +191,7 @@ log() {
 
 warn() {
   local msg="$*"
-  printf 'Warning: %s\n' "$msg" >&2
+  printf '%sWarning:%s %s\n' "$COLOR_YELLOW" "$COLOR_RESET" "$msg" >&2
   if [[ -n "${LOG_FILE:-}" ]]; then
     append_log "WARNING: $msg"
   fi
@@ -140,7 +199,10 @@ warn() {
 
 die() {
   local msg="$*"
-  warn "$msg"
+  printf '%sError:%s %s\n' "$COLOR_RED" "$COLOR_RESET" "$msg" >&2
+  if [[ -n "${LOG_FILE:-}" ]]; then
+    append_log "ERROR: $msg"
+  fi
   exit 1
 }
 
@@ -161,52 +223,30 @@ clean_log_file() {
   fi
 }
 
-# Format byte counts for humans. "empty" avoids making zero-byte cache dirs look
-# like meaningful reclaimable space.
 human_bytes() {
-  local bytes="${1:-0}"
-  if [[ "$bytes" -eq 0 ]]; then
-    printf 'empty'
-    return
-  fi
-
-  if command -v numfmt >/dev/null 2>&1; then
-    numfmt --to=iec --suffix=B "$bytes"
-  else
-    awk -v b="$bytes" 'BEGIN {
-      split("B KiB MiB GiB TiB", u)
-      i=1
-      while (b >= 1024 && i < 5) { b /= 1024; i++ }
-      printf "%.1f %s", b, u[i]
-    }'
-  fi
+  awk -v b="${1:-0}" 'BEGIN {
+    if (b == 0) { print "empty"; exit }
+    split("B KiB MiB GiB TiB", u)
+    i=1
+    while (b >= 1024 && i < 5) { b /= 1024; i++ }
+    printf "%.1f %s", b, u[i]
+  }'
 }
 
 summary_bytes() {
-  local bytes="${1:-0}"
-  if [[ "$bytes" -eq 0 ]]; then
-    printf '0 B'
-  else
-    human_bytes "$bytes"
-  fi
+  local val
+  val="$(human_bytes "${1:-0}")"
+  [[ "$val" == "empty" ]] && printf '0 B' || printf '%s' "$val"
 }
 
 clean_script_bytes() {
-  local bytes="${1:-0}"
-  awk -v b="$bytes" 'BEGIN {
-    if (b == 0) {
-      print "0 B"
-    } else if (b < 1024) {
-      print "<1 KB"
-    } else if (b < 1048576) {
-      printf "%.1f KB\n", b / 1024
-    } else if (b < 1073741824) {
-      printf "%.1f MB\n", b / 1048576
-    } else if (b < 1099511627776) {
-      printf "%.1f GB\n", b / 1073741824
-    } else {
-      printf "%.1f TB\n", b / 1099511627776
-    }
+  awk -v b="${1:-0}" 'BEGIN {
+    if (b == 0) { print "0 B"; exit }
+    if (b < 1024) { print "<1 KB"; exit }
+    split("KB MB GB TB", u)
+    i=1; b /= 1024
+    while (b >= 1024 && i < 4) { b /= 1024; i++ }
+    printf "%.1f %s\n", b, u[i]
   }'
 }
 
@@ -225,6 +265,7 @@ risk_rank() {
 # plan stays first in the output.
 setup_plan_file() {
   local temp_root="${TMPDIR:-/tmp}"
+  temp_root="${temp_root%/}"
   mkdir -p "$temp_root"
   PLAN_FILE="$(mktemp "$temp_root/mac-cleaner-plan.XXXXXX")"
   SKIPPED_FILE="$(mktemp "$temp_root/mac-cleaner-skipped.XXXXXX")"
@@ -285,29 +326,42 @@ safe_to_delete_path() {
     return 0
   fi
 
-  is_under_path "$path" "$HOME_DIR/Library/Caches" \
-    || is_under_path "$path" "$HOME_DIR/Library/Containers/com.apple.Safari/Data/Library/Caches" \
-    || is_under_path "$path" "$HOME_DIR/Library/Application Support/Code/Cache" \
-    || is_under_path "$path" "$HOME_DIR/Library/Application Support/Code/CachedData" \
-    || is_under_path "$path" "$HOME_DIR/Library/Application Support/Code/Service Worker/CacheStorage" \
-    || is_under_path "$path" "$HOME_DIR/Library/Application Support/Google/Chrome/Default/Cache" \
-    || is_under_path "$path" "$HOME_DIR/Library/Application Support/Google/Chrome/Default/Code Cache" \
-    || is_under_path "$path" "$HOME_DIR/Library/Application Support/BraveSoftware/Brave-Browser/Default/Cache" \
-    || is_under_path "$path" "$HOME_DIR/.cache" \
-    || is_under_path "$path" "$HOME_DIR/Library/Application Support/Firefox/Profiles" \
-    || is_under_path "$path" "$HOME_DIR/Library/Logs" \
-    || is_under_path "$path" "${TMPDIR:-/tmp}" \
-    || [[ "$path" == "$HOME_DIR/Library/Developer/Xcode/DerivedData" ]] \
-    || [[ "$path" == "$HOME_DIR/Library/Developer/CoreSimulator/Caches" ]] \
-    || [[ "$path" == "$HOME_DIR/Library/Caches/Homebrew" ]] \
-    || [[ "$path" == "$HOME_DIR/Library/Caches/pip" ]] \
-    || [[ "$path" == "$HOME_DIR/.npm/_cacache" ]] \
-    || [[ "$path" == "$HOME_DIR/.yarn/cache" ]] \
-    || [[ "$path" == "$HOME_DIR/Library/pnpm/store" ]] \
-    || [[ "$path" == "$HOME_DIR/.cargo/registry/cache" ]] \
-    || [[ "$path" == "$HOME_DIR/.gradle/caches" ]] \
-    || is_under_path "$path" "$HOME_DIR/Downloads" \
-    || is_under_path "$path" "$HOME_DIR/.Trash"
+  case "$path" in
+    # Caches, Logs, Trash, Downloads
+    "$HOME_DIR/Library/Caches"/*|"$HOME_DIR/Library/Containers/com.apple.Safari/Data/Library/Caches"/*|"$HOME_DIR/Library/Logs"/*|"$HOME_DIR/.cache"/*|"$HOME_DIR/Downloads"/*|"$HOME_DIR/.Trash"/*)
+      return 0
+      ;;
+    # IDEs Caches (VS Code, Cursor)
+    "$HOME_DIR/Library/Application Support/Code/Cache"/*|"$HOME_DIR/Library/Application Support/Code/CachedData"/*|"$HOME_DIR/Library/Application Support/Code/Service Worker/CacheStorage"/*)
+      return 0
+      ;;
+    "$HOME_DIR/Library/Application Support/Cursor/Cache"/*|"$HOME_DIR/Library/Application Support/Cursor/CachedData"/*)
+      return 0
+      ;;
+    # Chrome and Brave profiles caches
+    "$HOME_DIR/Library/Application Support/Google/Chrome"/*/Cache/*|"$HOME_DIR/Library/Application Support/Google/Chrome"/*/"Code Cache"/*)
+      return 0
+      ;;
+    "$HOME_DIR/Library/Application Support/BraveSoftware/Brave-Browser"/*/Cache/*|"$HOME_DIR/Library/Application Support/BraveSoftware/Brave-Browser"/*/"Code Cache"/*)
+      return 0
+      ;;
+    # Firefox profile caches
+    "$HOME_DIR/Library/Application Support/Firefox/Profiles"/*)
+      return 0
+      ;;
+    # Developer tools caches
+    "$HOME_DIR/Library/Developer/Xcode/DerivedData"|"$HOME_DIR/Library/Developer/CoreSimulator/Caches"|"$HOME_DIR/.npm/_cacache"|"$HOME_DIR/.yarn/cache"|"$HOME_DIR/.cargo/registry/cache"|"$HOME_DIR/.gradle/caches")
+      return 0
+      ;;
+  esac
+
+  local clean_tmp="${TMPDIR:-/tmp}"
+  clean_tmp="${clean_tmp%/}"
+  if is_under_path "$path" "$clean_tmp"; then
+    return 0
+  fi
+
+  return 1
 }
 
 # Use du for both files and directories so the plan can show realistic reclaim
@@ -367,13 +421,15 @@ quarantine_path() {
   if [[ -e "$path" || -L "$path" ]]; then
     setup_quarantine_root
 
-    local relative target parent
+    local relative target parent clean_tmp
+    clean_tmp="${TMPDIR:-/tmp}"
+    clean_tmp="${clean_tmp%/}"
     case "$path" in
       "$HOME_DIR"/*)
         relative="home/${path#"$HOME_DIR"/}"
         ;;
-      "${TMPDIR:-/tmp}"/*)
-        relative="tmp/${path#"${TMPDIR:-/tmp}"/}"
+      "$clean_tmp"/*)
+        relative="tmp/${path#"$clean_tmp"/}"
         ;;
       *)
         relative="other/${path#/}"
@@ -405,14 +461,40 @@ quarantine_path() {
 # aggregation close to the sorted plan format.
 print_plan() {
   log ""
-  log "== Cleanup plan =="
+  log "${COLOR_BOLD}== Cleanup plan ==${COLOR_RESET}"
 
   if [[ "$ITEMS_FOUND" -eq 0 ]]; then
     log "No matching files found."
     return
   fi
 
-  sort_plan | awk -F '\t' -v verbose="$VERBOSE" -v show_files="$SHOW_FILES" -v home="$HOME_DIR" -v tmp="${TMPDIR:-/tmp}" '
+  sort_plan | awk -F '\t' \
+    -v verbose="$VERBOSE" \
+    -v show_files="$SHOW_FILES" \
+    -v home="$HOME_DIR" \
+    -v tmp="${TMPDIR:-/tmp}" \
+    -v reset="$COLOR_RESET" \
+    -v bold="$COLOR_BOLD" \
+    -v dim="$COLOR_DIM" \
+    -v red="$COLOR_RED" \
+    -v green="$COLOR_GREEN" \
+    -v yellow="$COLOR_YELLOW" \
+    -v blue="$COLOR_BLUE" \
+    -v cyan="$COLOR_CYAN" \
+    -v magenta="$COLOR_MAGENTA" '
+    BEGIN {
+      note["Developer caches"] = "Usually safe to regenerate, but the next build, package install, or simulator launch may be slower."
+      note["Crash reports older than threshold"] = "Useful for troubleshooting older app crashes. Safe to move after review."
+      note["Old user logs"] = note["Old iOS simulator logs"] = "Logs are usually safe to move, but can help investigate older issues."
+      note["User cache contents older than threshold"] = note["Firefox browser caches"] = note["Temporary files older than threshold"] = "Usually safe to regenerate. Apps may rebuild these files later."
+      note["Downloads older than threshold"] = "High-risk personal files. Review each path before approving."
+      note["Trash"] = "High-risk final review area. Moving these keeps them recoverable until Trash is emptied."
+      note["Old Xcode archives"] = "High-risk release archives. They may contain dSYMs, builds, and submission history."
+
+      rnote["1"] = rnote["low"] = "Usually safe to regenerate."
+      rnote["2"] = rnote["medium"] = "Review first. These may affect workflow or troubleshooting history."
+      rnote["3"] = rnote["high"] = "Review carefully before approving."
+    }
     function human(bytes, units, i) {
       if (bytes == 0) {
         return "empty"
@@ -434,79 +516,23 @@ print_plan() {
       }
       return path
     }
-    function detail_bucket(path, shown, parts) {
+    function detail_bucket(path, shown) {
       shown = display_path(path)
-      split(shown, parts, "/")
-
-      if (parts[1] == "~" && parts[2] == ".cache" && parts[3] != "") {
-        return parts[1] "/" parts[2] "/" parts[3]
+      if (match(shown, /^\~\/(Library\/Application Support\/Code|Library\/Application Support|Library\/Developer|Library\/Logs|Library\/Caches|\.cache)\/[^\/]+/)) {
+        return substr(shown, RSTART, RLENGTH)
       }
-      if (parts[1] == "~" && parts[2] == ".gradle") {
-        return "~/.gradle/caches"
-      }
-      if (parts[1] == "~" && parts[2] == ".npm") {
-        return "~/.npm/_cacache"
-      }
-      if (parts[1] == "~" && parts[2] == "Library" && parts[3] == "Logs" && parts[4] != "") {
-        if (parts[5] == "") {
-          return "~/Library/Logs root files"
-        }
-        return parts[1] "/" parts[2] "/" parts[3] "/" parts[4]
-      }
-      if (parts[1] == "~" && parts[2] == "Library" && parts[3] == "Caches" && parts[4] != "") {
-        if (parts[5] == "") {
-          return "~/Library/Caches root files"
-        }
-        return parts[1] "/" parts[2] "/" parts[3] "/" parts[4]
-      }
-      if (parts[1] == "~" && parts[2] == "Library" && parts[3] == "Application Support" && parts[4] != "") {
-        if (parts[4] == "Code" && parts[5] != "") {
-          return parts[1] "/" parts[2] "/" parts[3] "/" parts[4] "/" parts[5]
-        }
-        return parts[1] "/" parts[2] "/" parts[3] "/" parts[4]
-      }
-      if (parts[1] == "~" && parts[2] == "Library" && parts[3] == "Developer" && parts[4] != "") {
-        return parts[1] "/" parts[2] "/" parts[3] "/" parts[4]
-      }
-      if (parts[1] == "~" && parts[2] == "Downloads") {
-        return "~/Downloads"
-      }
-      if (parts[1] == "~" && parts[2] == ".Trash") {
-        return "~/.Trash"
-      }
-      if (parts[1] == "$TMPDIR") {
-        return "$TMPDIR"
-      }
+      if (shown == "~/Library/Logs") return "~/Library/Logs root files"
+      if (shown == "~/Library/Caches") return "~/Library/Caches root files"
+      if (shown ~ /^\~\/\.gradle/) return "~/.gradle/caches"
+      if (shown ~ /^\~\/\.npm/) return "~/.npm/_cacache"
+      if (shown ~ /^\~\/Downloads/) return "~/Downloads"
+      if (shown ~ /^\~\/\.Trash/) return "~/.Trash"
+      if (shown ~ /^\$TMPDIR/) return "$TMPDIR"
       return shown
     }
     function group_note(group, risk) {
-      if (group == "Developer caches") {
-        return "Note: Usually safe to regenerate, but the next build, package install, or simulator launch may be slower."
-      }
-      if (group == "Crash reports older than threshold") {
-        return "Note: Useful for troubleshooting older app crashes. Safe to move after review."
-      }
-      if (group == "Old user logs" || group == "Old iOS simulator logs") {
-        return "Note: Logs are usually safe to move, but can help investigate older issues."
-      }
-      if (group == "User cache contents older than threshold" || group == "Firefox browser caches" || group == "Temporary files older than threshold") {
-        return "Note: Usually safe to regenerate. Apps may rebuild these files later."
-      }
-      if (group == "Downloads older than threshold") {
-        return "Note: High-risk personal files. Review each path before approving."
-      }
-      if (group == "Trash") {
-        return "Note: High-risk final review area. Moving these keeps them recoverable in the mac-cleaner folder until Trash is emptied."
-      }
-      if (group == "Old Xcode archives") {
-        return "Note: High-risk release archives. They may contain dSYMs, builds, and submission history."
-      }
-      if (risk == "low") {
-        return "Note: Usually safe to regenerate."
-      }
-      if (risk == "medium") {
-        return "Note: Review first. These may affect workflow or troubleshooting history."
-      }
+      if (group in note) return "Note: " note[group]
+      if (risk in rnote) return "Note: " rnote[risk]
       return "Note: Review carefully before approving."
     }
     function ensure_group(group, risk) {
@@ -528,7 +554,8 @@ print_plan() {
     }
     function add_file(group, size, path) {
       file_total[group] += 1
-      file_order[group SUBSEP file_total[group]] = sprintf("  %s  %s", human(size), display_path(path))
+      file_size[group SUBSEP file_total[group]] = size
+      file_path[group SUBSEP file_total[group]] = path
     }
     {
       group = $1
@@ -548,22 +575,43 @@ print_plan() {
     END {
       for (i = 1; i <= group_total; i++) {
         group = groups[i]
-        printf "== %s [%s risk] ==\n", group, group_risk[group]
-        printf "%s\n", group_note(group, group_risk[group])
+        risk = group_risk[group]
+
+        # Determine risk color
+        risk_color = reset
+        if (risk == "1" || risk == "low") {
+          risk_color = green
+        } else if (risk == "2" || risk == "medium") {
+          risk_color = yellow
+        } else if (risk == "3" || risk == "high") {
+          risk_color = red
+        }
+
+        # Print header
+        printf "%s❯ %s%s %s[%s risk]%s\n", bold, group, reset, risk_color, (risk == "1" ? "low" : (risk == "2" ? "medium" : (risk == "3" ? "high" : risk))), reset
+        printf "  %s%s%s\n", dim, group_note(group, risk), reset
 
         if (show_files != 0) {
           for (j = 1; j <= file_total[group]; j++) {
-            print file_order[group SUBSEP j]
+            size = file_size[group SUBSEP j]
+            path = file_path[group SUBSEP j]
+            printf "  %s├── %s%-10s%s  %s\n", dim, reset, human(size), dim, display_path(path)
           }
         } else if (verbose != 0) {
           for (j = 1; j <= detail_total[group]; j++) {
             detail = detail_order[group SUBSEP j]
             key = group SUBSEP detail
-            printf "  %s  %d item(s)  %s\n", human(detail_bytes[key]), detail_count[key], detail
+            printf "  %s├── %s%-10s%s  (%d %s)  %s%s\n",
+              dim, reset, human(detail_bytes[key]), dim, detail_count[key],
+              (detail_count[key] == 1 ? "item" : "items"), reset, detail
           }
         }
 
-        printf "Found %d item(s), %s.\n", group_count[group], human(group_bytes[group])
+        # Summary as tree base (always the └── branch)
+        printf "  %s└── Total: %s%s%s  (%d %s)\n",
+          dim, bold, human(group_bytes[group]), reset, group_count[group],
+          (group_count[group] == 1 ? "item" : "items")
+
         if (i < group_total) {
           printf "\n"
         }
@@ -594,13 +642,18 @@ write_dry_run_clean_script() {
   {
     printf '#!/usr/bin/env bash\n'
     printf 'set -euo pipefail\n\n'
-    printf '# Generated by mac-cleaner.sh %s dry-run.\n' "$VERSION"
-    printf '# Review every path carefully before using this file.\n'
-    printf '# To use it: delete the leading "# " from only the rm -rf lines you approve, then run:\n'
-    printf '#   bash %s\n\n' "$output"
+    printf '## Generated by mac-cleaner.sh %s dry-run.\n' "$VERSION"
+    printf '## Review every path carefully before using this file.\n'
+    printf '##\n'
+    printf '## How to use:\n'
+    printf '##   1. Open this file in your editor (VS Code, Cursor, etc.).\n'
+    printf '##   2. Select the groups or command lines you approve.\n'
+    printf '##   3. Press Cmd + / (or Ctrl + /) to uncomment only the rm -rf lines.\n'
+    printf '##   4. Run this script in your terminal:\n'
+    printf '##      bash %s\n\n' "$output"
 
     if [[ "$ITEMS_FOUND" -eq 0 ]]; then
-      printf '# No removable candidates were found in this dry run.\n'
+      printf '## No removable candidates were found in this dry run.\n'
     else
       local previous_group="" group _rank risk size path
       while IFS="$(printf '\t')" read -r group _rank risk size path; do
@@ -608,11 +661,11 @@ write_dry_run_clean_script() {
           if [[ -n "$previous_group" ]]; then
             printf '\n'
           fi
-          printf '# == %s [%s risk] ==\n' "$group" "$risk"
+          printf '## == %s [%s risk] ==\n' "$group" "$risk"
           previous_group="$group"
         fi
 
-        printf '# Size: %s\n' "$(clean_script_bytes "$size")"
+        printf '## Size: %s\n' "$(clean_script_bytes "$size")"
         printf '# rm -rf -- %s\n' "$(shell_quote "$path")"
       done < <(sort_plan)
     fi
@@ -622,12 +675,33 @@ write_dry_run_clean_script() {
   log ""
   log "Dry-run cleanup script written to: $output"
   log "All rm -rf lines are commented. Review, edit, and run it yourself only if you are confident."
+
+  # Clean up old clean-[0-9]*.sh scripts in the current directory, keeping the last 3 files
+  local old_scripts=()
+  local script_path
+  while IFS= read -r script_path; do
+    if [[ -f "$script_path" ]]; then
+      old_scripts+=("$script_path")
+    fi
+  done < <(ls -t clean-[0-9]*.sh 2>/dev/null)
+
+  if [[ "${#old_scripts[@]}" -gt 3 ]]; then
+    local idx
+    for ((idx = 3; idx < ${#old_scripts[@]}; idx++)); do
+      rm -f "${old_scripts[idx]}"
+    done
+  fi
 }
 
 print_group_files() {
   local group="$1"
 
-  sort_plan | awk -F '\t' -v wanted="$group" -v home="$HOME_DIR" -v tmp="${TMPDIR:-/tmp}" '
+  sort_plan | awk -F '\t' \
+    -v wanted="$group" \
+    -v home="$HOME_DIR" \
+    -v tmp="${TMPDIR:-/tmp}" \
+    -v dim="$COLOR_DIM" \
+    -v reset="$COLOR_RESET" '
     function human(bytes, units, i) {
       if (bytes == 0) {
         return "empty"
@@ -650,42 +724,45 @@ print_group_files() {
       return path
     }
     $1 == wanted {
-      printf "  %s  %s\n", human($4), display_path($5)
+      paths[++total] = $5
+      sizes[total] = $4
+    }
+    END {
+      for (i = 1; i <= total; i++) {
+        prefix = (i == total) ? "└──" : "├──"
+        printf "  %s%s %s%-10s%s  %s%s\n", dim, prefix, reset, human(sizes[i]), dim, display_path(paths[i]), reset
+      }
     }
   '
 }
 
-# Optional groups are shown after the cleanup plan, so users first see what will
-# actually be considered.
 print_skipped_optional_groups() {
   if [[ ! -s "$SKIPPED_FILE" ]]; then
     return
   fi
 
   log ""
-  log "== Skipped optional groups =="
-  awk -F '\t' '{ printf "%s: skipped. %s\n", $1, $2 }' "$SKIPPED_FILE"
+  log "${COLOR_BOLD}== Skipped optional groups ==${COLOR_RESET}"
+  awk -F '\t' -v dim="$COLOR_DIM" -v reset="$COLOR_RESET" '{ printf "  %s%s: skipped. %s%s\n", dim, $1, $2, reset }' "$SKIPPED_FILE"
 }
 
 print_final_summary() {
   log ""
-  log "== Final summary =="
-  log "Scan found $ITEMS_FOUND item(s) that can be removed, totaling $(summary_bytes "$TOTAL_BYTES"). Actually moved $ITEMS_MOVED item(s), totaling $(summary_bytes "$MOVED_BYTES")."
-  log ""
-  printf '%-32s %12s %14s\n' "Result" "Items" "Size"
-  printf '%-32s %12s %14s\n' "--------------------------------" "------------" "--------------"
-  printf '%-32s %12s %14s\n' "Can be removed" "$ITEMS_FOUND" "$(summary_bytes "$TOTAL_BYTES")"
-  printf '%-32s %12s %14s\n' "Actually moved" "$ITEMS_MOVED" "$(summary_bytes "$MOVED_BYTES")"
+  log "${COLOR_BOLD}📊 Final Summary${COLOR_RESET}"
+  log "${COLOR_DIM}────────────────────────────────────────────────────────${COLOR_RESET}"
+  printf "${COLOR_BOLD}%-20s${COLOR_RESET} %8s items   %12s\n" "Can be reclaimed:" "$ITEMS_FOUND" "$(summary_bytes "$TOTAL_BYTES")"
+  printf "${COLOR_BOLD}%-20s${COLOR_RESET} %8s items   %12s\n" "Actually moved:" "$ITEMS_MOVED" "$(summary_bytes "$MOVED_BYTES")"
+  log "${COLOR_DIM}────────────────────────────────────────────────────────${COLOR_RESET}"
 }
 
 print_next_step() {
   log ""
   if [[ "$DRY_RUN" -eq 1 ]]; then
     log "Review the paths above. If they look safe, run:"
-    log "  ./mac-cleaner.sh --execute"
-    log "For a more conservative cleanup, leave Downloads, Trash, Docker, and Xcode archives disabled."
+    log "  ${COLOR_BOLD}${COLOR_CYAN}./mac-cleaner.sh --execute${COLOR_RESET}"
+    log "${COLOR_DIM}For a more conservative cleanup, leave Downloads, Trash, Docker, and Xcode archives disabled.${COLOR_RESET}"
   else
-    log "Cleanup complete."
+    log "${COLOR_BOLD}${COLOR_GREEN}Cleanup complete.${COLOR_RESET}"
   fi
 }
 
@@ -701,7 +778,7 @@ prompt_yes_no() {
   fi
 
   while true; do
-    printf '%s %s: ' "$prompt" "$suffix"
+    printf '%s%s%s %s: ' "$COLOR_BOLD" "$prompt" "$COLOR_RESET" "$suffix"
     read -r answer
     case "$answer" in
       "")
@@ -725,7 +802,7 @@ prompt_age_threshold() {
   local answer
 
   while true; do
-    printf 'Only include age-based files older than how many days? [%s]: ' "$OLDER_THAN_DAYS"
+    printf '%sOnly include age-based files older than how many days?%s [%s]: ' "$COLOR_BOLD" "$COLOR_RESET" "$OLDER_THAN_DAYS"
     read -r answer
     if [[ -z "$answer" ]]; then
       return
@@ -742,13 +819,13 @@ prompt_detail_level() {
   local answer
 
   log ""
-  log "Review detail:"
+  log "${COLOR_BOLD}Review detail:${COLOR_RESET}"
   log "  1) Summary only"
   log "  2) Grouped folders"
   log "  3) Every file path"
 
   while true; do
-    printf 'Choose review detail [2]: '
+    printf '%sChoose review detail%s [2]: ' "$COLOR_BOLD" "$COLOR_RESET"
     read -r answer
     case "${answer:-2}" in
       1)
@@ -806,8 +883,12 @@ configure_interactive_mode() {
     INCLUDE_XCODE_ARCHIVES=0
   fi
 
-  if prompt_yes_no "Include Docker prune review?" "$([[ "$INCLUDE_DOCKER" -eq 1 ]] && printf y || printf n)"; then
-    INCLUDE_DOCKER=1
+  if command -v docker >/dev/null 2>&1; then
+    if prompt_yes_no "Include Docker prune review?" "$([[ "$INCLUDE_DOCKER" -eq 1 ]] && printf y || printf n)"; then
+      INCLUDE_DOCKER=1
+    else
+      INCLUDE_DOCKER=0
+    fi
   else
     INCLUDE_DOCKER=0
   fi
@@ -863,8 +944,8 @@ confirm_group_quarantine() {
 
   if [[ "$YES" -eq 1 && "$risk" != "high" ]]; then
     log ""
-    log "Auto-approved by --yes: $group"
-    log "Items: $count, size: $size"
+    log "${COLOR_DIM}────────────────────────────────────────────────────────${COLOR_RESET}"
+    log "🟢 ${COLOR_GREEN}✓ Auto-approved by --yes:${COLOR_RESET} ${COLOR_BOLD}$group${COLOR_RESET} (${COLOR_BLUE}$count${COLOR_RESET} items, ${COLOR_BLUE}$size${COLOR_RESET})"
     return 0
   fi
 
@@ -873,12 +954,38 @@ confirm_group_quarantine() {
     return 1
   fi
 
+  local risk_color risk_label risk_icon
+  case "$risk" in
+    low)
+      risk_color="$COLOR_GREEN"
+      risk_label="[Low Risk]"
+      risk_icon="🟢"
+      ;;
+    medium)
+      risk_color="$COLOR_YELLOW"
+      risk_label="[Medium Risk]"
+      risk_icon="⚠️ "
+      ;;
+    high)
+      risk_color="$COLOR_RED"
+      risk_label="[High Risk]"
+      risk_icon="🚨"
+      ;;
+    *)
+      risk_color="$COLOR_RESET"
+      risk_label="[$risk Risk]"
+      risk_icon="❓"
+      ;;
+  esac
+
   log ""
-  log "Ready to move group to recovery folder: $group"
-  log "Risk: $risk - $(group_risk_note "$risk")"
-  log "Files to move: $count, total size: $size"
+  log "${COLOR_DIM}────────────────────────────────────────────────────────${COLOR_RESET}"
+  log "📦 ${COLOR_BOLD}Ready to move group:${COLOR_RESET} ${COLOR_CYAN}$group${COLOR_RESET}"
+  log "${risk_icon} ${COLOR_BOLD}Risk:${COLOR_RESET} ${risk_color}${risk_label}${COLOR_RESET} — $(group_risk_note "$risk")"
+  log "📊 ${COLOR_BOLD}Files to move:${COLOR_RESET} ${COLOR_BOLD}${COLOR_BLUE}$count${COLOR_RESET} items (${COLOR_BOLD}${COLOR_BLUE}$size${COLOR_RESET})"
   print_group_files "$group"
-  printf 'Move this group to ~/.Trash? [y/N/q]: '
+  log "${COLOR_DIM}────────────────────────────────────────────────────────${COLOR_RESET}"
+  printf '%sMove this group to ~/.Trash? [y/N/q]:%s ' "$COLOR_BOLD" "$COLOR_RESET"
   local answer
   read -r answer
   if [[ "$answer" == "y" || "$answer" == "Y" ]]; then
@@ -886,11 +993,11 @@ confirm_group_quarantine() {
   fi
   if [[ "$answer" == "q" || "$answer" == "Q" ]]; then
     ABORT_EXECUTION=1
-    log "Stopping execute mode at your request."
+    log "🔴 ${COLOR_RED}✗ Stopping execute mode at your request.${COLOR_RESET}"
     return 1
   fi
 
-  log "Skipped group: $group"
+  log "🟡 ${COLOR_YELLOW}⚠ Skipped group:${COLOR_RESET} ${COLOR_BOLD}$group${COLOR_RESET}"
   return 1
 }
 
@@ -907,16 +1014,18 @@ confirm_docker_cleanup() {
   fi
 
   log ""
-  log "Ready to run Docker cleanup"
-  log "Risk: medium - This permanently removes unused Docker builder cache and stopped resources."
-  printf 'Run Docker prune commands? Type PRUNE to confirm, or press Enter to skip: '
+  log "${COLOR_DIM}────────────────────────────────────────────────────────${COLOR_RESET}"
+  log "🐳 ${COLOR_BOLD}Ready to run Docker cleanup${COLOR_RESET}"
+  log "⚠️  ${COLOR_BOLD}Risk:${COLOR_RESET} ${COLOR_YELLOW}[Medium Risk]${COLOR_RESET} — This permanently removes unused Docker builder cache and stopped resources."
+  log "${COLOR_DIM}────────────────────────────────────────────────────────${COLOR_RESET}"
+  printf '%sRun Docker prune commands? Type PRUNE to confirm, or press Enter to skip:%s ' "$COLOR_BOLD" "$COLOR_RESET"
   local answer
   read -r answer
   if [[ "$answer" == "PRUNE" ]]; then
     return 0
   fi
 
-  log "Skipped Docker cleanup."
+  log "🟡 ${COLOR_YELLOW}⚠ Skipped Docker cleanup.${COLOR_RESET}"
   return 1
 }
 
@@ -925,6 +1034,18 @@ confirm_docker_cleanup() {
 execute_plan() {
   if [[ "$DRY_RUN" -eq 1 || "$ITEMS_FOUND" -eq 0 ]]; then
     return
+  fi
+
+  # Check if reclaiming exceeds 80% of available disk space on home volume
+  local free_kb
+  free_kb=$(df -k "$HOME_DIR" 2>/dev/null | awk 'NR==2 {print $4}')
+  if [[ "$free_kb" =~ ^[0-9]+$ && "$free_kb" -gt 0 ]]; then
+    local free_bytes=$((free_kb * 1024))
+    if [[ $((TOTAL_BYTES * 10)) -gt $((free_bytes * 8)) ]]; then
+      log ""
+      warn "Total size of files to clean ($(human_bytes "$TOTAL_BYTES")) exceeds 80% of your free disk space ($(human_bytes "$free_bytes"))."
+      warn "Moving files of this size might temporarily slow down or fill up the disk volume."
+    fi
   fi
 
   log ""
@@ -937,7 +1058,7 @@ execute_plan() {
     | LC_ALL=C sort -t "$(printf '\t')" -k1,1n -k2,2 >"$groups_file"
 
   local _rank group risk count bytes path path_bytes
-  while IFS="$(printf '\t')" read -r _rank group risk count bytes; do
+  while IFS="$(printf '\t')" read -u 3 -r _rank group risk count bytes; do
     if [[ "$ABORT_EXECUTION" -eq 1 ]]; then
       break
     fi
@@ -949,8 +1070,8 @@ execute_plan() {
     while IFS="$(printf '\t')" read -r path_bytes path; do
       quarantine_path "$path" "$path_bytes" || true
     done < <(sort_plan | awk -F '\t' -v wanted="$group" '$1 == wanted { print $4 "\t" $5 }')
-    log "Moved group to recovery folder: $group"
-  done <"$groups_file"
+    log "🟢 ${COLOR_GREEN}✓ Moved group to recovery folder:${COLOR_RESET} ${COLOR_BOLD}$group${COLOR_RESET}"
+  done 3<"$groups_file"
 
   rm -f "$groups_file"
 
@@ -1034,6 +1155,7 @@ run_docker_cleanup() {
     fi
     docker builder prune --force
     docker system prune --force
+    log "🟢 ${COLOR_GREEN}✓ Completed Docker cleanup.${COLOR_RESET}"
   fi
 }
 
@@ -1041,15 +1163,15 @@ run_docker_cleanup() {
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --execute)
+      -e|--execute)
         DRY_RUN=0
         ;;
-      --dry-run)
+      -d|--dry-run)
         DRY_RUN=1
         ;;
-      --older-than)
+      -o|--older-than)
         if [[ $# -lt 2 || ! "$2" =~ ^[0-9]+$ ]]; then
-          warn "--older-than requires a non-negative integer."
+          warn "$1 requires a non-negative integer."
           exit 2
         fi
         OLDER_THAN_DAYS="$2"
@@ -1061,7 +1183,7 @@ parse_args() {
       --include-docker)
         INCLUDE_DOCKER=1
         ;;
-      --interactive)
+      -i|--interactive)
         INTERACTIVE=1
         ;;
       --include-xcode-archives)
@@ -1070,19 +1192,22 @@ parse_args() {
       --empty-trash)
         EMPTY_TRASH=1
         ;;
-      --yes)
+      -y|--yes)
         YES=1
         ;;
-      --verbose)
+      -v|--verbose)
         VERBOSE=1
         ;;
-      --show-files)
+      -s|--show-files)
         SHOW_FILES=1
         ;;
       --clean-log)
         CLEAN_LOG=1
         ;;
-      --version)
+      -n|--no-color)
+        COLOR_DISABLED=1
+        ;;
+      -V|--version)
         log "$VERSION"
         exit 0
         ;;
@@ -1091,8 +1216,7 @@ parse_args() {
         exit 0
         ;;
       *)
-        warn "Unknown option: $1"
-        usage
+        warn "Unknown option: $1. Try 'mac-cleaner.sh --help' for more information."
         exit 2
         ;;
     esac
@@ -1101,8 +1225,25 @@ parse_args() {
 }
 
 main() {
+  # Quick pre-scan for color preference
+  local arg
+  for arg in "$@"; do
+    if [[ "$arg" == "-n" || "$arg" == "--no-color" ]]; then
+      COLOR_DISABLED=1
+    fi
+  done
+
+  # Enable color if stdout is a TTY and colors are not explicitly disabled
+  if [[ "$COLOR_DISABLED" -eq 0 ]] && [[ -t 1 ]] && [[ -z "${NO_COLOR:-}" ]]; then
+    enable_color
+  fi
+
   load_config
   parse_args "$@"
+
+  if [[ "$COLOR_DISABLED" -eq 1 ]]; then
+    disable_color
+  fi
 
   if [[ -z "$HOME_DIR" || "$HOME_DIR" == "/" ]]; then
     die "Refusing to run with unsafe HOME: ${HOME_DIR:-<empty>}"
@@ -1117,14 +1258,21 @@ main() {
 
   setup_plan_file
 
-  log "mac-cleaner.sh $VERSION"
-  if [[ "$DRY_RUN" -eq 1 ]]; then
-    log "Mode: dry run. Nothing will be deleted."
-  else
-    log "Mode: execute. Matching files will be moved to a recovery folder in ~/.Trash."
+  local mode_str="${COLOR_GREEN}Dry Run (Safe mode, preview only)${COLOR_RESET}"
+  if [[ "$DRY_RUN" -eq 0 ]]; then
+    mode_str="${COLOR_YELLOW}Execute (Move selected files to Trash)${COLOR_RESET}"
   fi
-  log "Log file: $LOG_FILE"
-  log "Age threshold: older than $OLDER_THAN_DAYS day(s)."
+
+  local visual_log_file="$LOG_FILE"
+  visual_log_file="${visual_log_file//"$HOME_DIR"/~}"
+
+  log ""
+  log "${COLOR_BOLD}${COLOR_CYAN}✨ mac-cleaner v${VERSION}${COLOR_RESET}"
+  log "${COLOR_DIM}────────────────────────────────────────────────────────${COLOR_RESET}"
+  log "${COLOR_BOLD}Mode:${COLOR_RESET}          $mode_str"
+  log "${COLOR_BOLD}Log File:${COLOR_RESET}      $visual_log_file"
+  log "${COLOR_BOLD}Age Threshold:${COLOR_RESET} > $OLDER_THAN_DAYS day(s)"
+  log "${COLOR_DIM}────────────────────────────────────────────────────────${COLOR_RESET}"
 
   configure_interactive_mode
 
@@ -1135,10 +1283,22 @@ main() {
     "$HOME_DIR/Library/Application Support/Code/Cache" \
     "$HOME_DIR/Library/Application Support/Code/CachedData" \
     "$HOME_DIR/Library/Application Support/Code/Service Worker/CacheStorage" \
-    "$HOME_DIR/Library/Application Support/Google/Chrome/Default/Cache" \
-    "$HOME_DIR/Library/Application Support/Google/Chrome/Default/Code Cache" \
-    "$HOME_DIR/Library/Application Support/BraveSoftware/Brave-Browser/Default/Cache" \
+    "$HOME_DIR/Library/Application Support/Cursor/Cache" \
+    "$HOME_DIR/Library/Application Support/Cursor/CachedData" \
     "$HOME_DIR/.cache"
+
+  # Chrome & Brave caches (All profiles dynamically)
+  local browser_dir cache_dir
+  for browser_dir in \
+    "$HOME_DIR/Library/Application Support/Google/Chrome" \
+    "$HOME_DIR/Library/Application Support/BraveSoftware/Brave-Browser"
+  do
+    if [[ -d "$browser_dir" ]]; then
+      while IFS= read -r -d '' cache_dir; do
+        scan_dir_contents_older_than "User cache contents older than threshold" "low" "$cache_dir"
+      done < <(find "$browser_dir" -maxdepth 2 -type d '(' -name "Cache" -o -name "Code Cache" ')' -print0 2>/dev/null)
+    fi
+  done
 
   scan_find "Firefox browser caches" "low" "$HOME_DIR/Library/Application Support/Firefox/Profiles" \
     -type d '(' -name cache2 -o -name startupCache ')'
@@ -1155,13 +1315,14 @@ main() {
   # Step 2: scan developer caches. These are usually rebuildable but can make
   # the next install, build, or simulator launch slower.
   scan_literal_paths "Developer caches" "medium" \
+    "$HOME_DIR/Library/Caches/go-build" \
+    "$HOME_DIR/Library/Caches/CocoaPods" \
     "$HOME_DIR/Library/Developer/Xcode/DerivedData" \
     "$HOME_DIR/Library/Developer/CoreSimulator/Caches" \
     "$HOME_DIR/Library/Caches/Homebrew" \
     "$HOME_DIR/Library/Caches/pip" \
     "$HOME_DIR/.npm/_cacache" \
     "$HOME_DIR/.yarn/cache" \
-    "$HOME_DIR/Library/pnpm/store" \
     "$HOME_DIR/.cargo/registry/cache" \
     "$HOME_DIR/.gradle/caches"
 

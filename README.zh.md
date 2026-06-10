@@ -30,17 +30,69 @@ make install PREFIX="$HOME/.local"
 
 ## 快速开始
 
-始终先从 dry run 开始：
+始终先从 dry run 开始，预览待清理项目：
 
 ```bash
 mac-cleaner --verbose
 ```
 
-Dry-run 模式会：
+Dry-run 模式会以精美的格式打印清理计划的层级树，并写入一个已注释的 `clean.sh` 审查脚本：
 
-- 按风险和类别打印清理计划。
-- 显示可以清理多少项目、释放多少空间。
-- 写入一个已注释的 `clean.sh` 审查脚本。
+```text
+✨ mac-cleaner v1.0.0
+────────────────────────────────────────────────────────
+Mode:          Dry Run (Safe mode, preview only)
+Log File:      ~/.local/state/mac-cleaner/mac-cleaner.log
+Age Threshold: > 14 day(s)
+────────────────────────────────────────────────────────
+
+== Cleanup plan ==
+❯ Old user logs [low risk]
+  Note: Logs are usually safe to move, but can help investigate older issues.
+  ├── 8.0 KiB     (1 item)  ~/Library/Logs/PhotosUpgrade.aapbz
+  ├── 20.0 KiB    (6 items)  ~/Library/Logs/iStat Menus 7
+  └── Total: 28.0 KiB  (7 items)
+
+❯ User cache contents older than threshold [low risk]
+  Note: Usually safe to regenerate. Apps may rebuild these files later.
+  ├── empty       (1 item)  ~/.cache/antigravity
+  ├── 2.0 MiB     (1 item)  ~/.cache/gitstatus
+  ├── 75.6 MiB    (4 items)  ~/Library/Application Support/Code/CachedData
+  ├── 48.0 KiB    (1 item)  ~/Library/Caches/GameKit
+  └── Total: 77.6 MiB  (11 items)
+
+❯ Crash reports older than threshold [medium risk]
+  Note: Useful for troubleshooting older app crashes. Safe to move after review.
+  ├── 16.0 KiB    (2 items)  ~/Library/Logs/DiagnosticReports
+  └── Total: 16.0 KiB  (2 items)
+
+❯ Developer caches [medium risk]
+  Note: Usually safe to regenerate, but the next build, package install, or simulator launch may be slower.
+  ├── 237.9 MiB   (1 item)  ~/.npm/_cacache
+  ├── 55.2 MiB    (1 item)  ~/Library/Caches/Homebrew
+  ├── 111.0 MiB   (1 item)  ~/Library/Caches/go-build
+  ├── 14.9 MiB    (1 item)  ~/Library/Caches/pip
+  ├── empty       (1 item)  ~/Library/Developer/CoreSimulator
+  └── Total: 419.0 MiB  (5 items)
+
+Dry-run cleanup script written to: clean.sh
+All rm -rf lines are commented. Review, edit, and run it yourself only if you are confident.
+
+== Skipped optional groups ==
+  Old Xcode archives: skipped. Use --include-xcode-archives to include Organizer archives older than the threshold.
+  Downloads older than threshold: skipped. Use --include-downloads to include ~/Downloads.
+  Trash: skipped. Use --empty-trash to include ~/.Trash.
+  Docker cleanup: skipped. Use --include-docker to prune Docker caches and stopped resources.
+
+📊 Final Summary
+────────────────────────────────────────────────────────
+Can be reclaimed:          25 items      496.7 MiB
+Actually moved:             0 items            0 B
+────────────────────────────────────────────────────────
+
+Review the paths above. If they look safe, run:
+  ./mac-cleaner.sh --execute
+```
 
 如需逐个文件完整审查：
 
@@ -48,30 +100,31 @@ Dry-run 模式会：
 mac-cleaner --show-files
 ```
 
-如需引导式流程：
+如需引导式设置流程：
 
 ```bash
 mac-cleaner --interactive
 ```
 
-当清理计划看起来安全时：
+当你确认计划安全，准备执行清理时：
 
 ```bash
 mac-cleaner --execute
 ```
 
-执行模式会再次显示每个分组，询问 `y/N/q`，默认是 No。批准的文件会被移动到 `~/.Trash/mac-cleaner-*`，不会被永久删除。
+执行模式会再次显示每个分组，打印该分组下的具体文件，并要求你进行确认 (`y/N/q`)。批准的文件会被安全地移动到 `~/.Trash/mac-cleaner-*`（不会被永久删除）。
 
 ## 常用选项
 
 ```bash
-mac-cleaner --verbose
-mac-cleaner --show-files
-mac-cleaner --interactive
+mac-cleaner --verbose                       # 以树状图层级格式展示分组文件夹和大小
+mac-cleaner --show-files                     # 打印扫描到的每一个具体文件路径
+mac-cleaner --interactive                  # 引导式交互配置与确认
+mac-cleaner --no-color                     # 禁用终端彩色输出
 mac-cleaner --dry-run --older-than 30 --include-downloads --verbose
-mac-cleaner --clean-log
-mac-cleaner --execute --empty-trash
-mac-cleaner --execute --include-docker
+mac-cleaner --clean-log                    # 清空工具自身的历史日志文件
+mac-cleaner --execute --empty-trash        # 执行清理并清空系统垃圾桶 (~/.Trash)
+mac-cleaner --execute --include-docker      # 触发 Docker 缓存与停止资源的 prune 清理
 mac-cleaner --execute --include-xcode-archives
 ```
 
@@ -89,15 +142,17 @@ mac-cleaner --execute --include-xcode-archives
 
 ## 审查脚本
 
-Dry-run 模式会写入一个带注释命令的审查脚本：
+Dry-run 模式会写入一个带注释命令的 `clean.sh` 审查脚本。非破坏性元数据、标题和大小均使用双井号 `##` 前缀注释，而实际具有破坏性的清理命令则使用单井号 `#` 注释：
 
 ```bash
-# == User cache contents older than threshold [low risk] ==
-# Size: 4.0 KB
+## == User cache contents older than threshold [low risk] ==
+## Size: 4.0 KB
 # rm -rf -- /Users/you/Library/Caches/example
 ```
 
-在你手动编辑之前，这个文件里的内容不会执行。内置的 `--execute` 模式比运行生成的脚本更安全，因为它会先把文件移动到 Trash。
+这种布局允许你在任何现代编辑器（如 VS Code、Cursor、Xcode）中打开 `clean.sh`，直接选择你想要批准的文件块，然后按下 **Cmd + /** (或 **Ctrl + /**) 即可快速仅反注释 `rm -rf` 命令行，同时让分组标题和大小警告保持被 `##` 注释的状态。
+
+在你手动审查和运行之前，此文件中的任何命令都绝对不会执行。注意，内置的 `--execute` 模式比运行生成的脚本更安全，因为它会先将文件移动到 Trash 而非直接永久删除。
 
 ## 配置
 

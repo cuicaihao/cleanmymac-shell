@@ -30,48 +30,101 @@ Make sure `$HOME/.local/bin` is on your `PATH`.
 
 ## Quick Start
 
-Always start with a dry run:
+Always start with a dry run to preview candidates:
 
 ```bash
 mac-cleaner --verbose
 ```
 
-Dry-run mode:
+Dry-run mode prints a beautifully formatted summary and hierarchy tree of candidates, then writes a commented `clean.sh` review script:
 
-- Prints a cleanup plan grouped by risk and category.
-- Shows how many items and how much space could be cleaned.
-- Writes a commented `clean.sh` review script.
+```text
+✨ mac-cleaner v1.0.0
+────────────────────────────────────────────────────────
+Mode:          Dry Run (Safe mode, preview only)
+Log File:      ~/.local/state/mac-cleaner/mac-cleaner.log
+Age Threshold: > 14 day(s)
+────────────────────────────────────────────────────────
 
-For a full file-by-file review:
+== Cleanup plan ==
+❯ Old user logs [low risk]
+  Note: Logs are usually safe to move, but can help investigate older issues.
+  ├── 8.0 KiB     (1 item)  ~/Library/Logs/PhotosUpgrade.aapbz
+  ├── 20.0 KiB    (6 items)  ~/Library/Logs/iStat Menus 7
+  └── Total: 28.0 KiB  (7 items)
+
+❯ User cache contents older than threshold [low risk]
+  Note: Usually safe to regenerate. Apps may rebuild these files later.
+  ├── empty       (1 item)  ~/.cache/antigravity
+  ├── 2.0 MiB     (1 item)  ~/.cache/gitstatus
+  ├── 75.6 MiB    (4 items)  ~/Library/Application Support/Code/CachedData
+  ├── 48.0 KiB    (1 item)  ~/Library/Caches/GameKit
+  └── Total: 77.6 MiB  (11 items)
+
+❯ Crash reports older than threshold [medium risk]
+  Note: Useful for troubleshooting older app crashes. Safe to move after review.
+  ├── 16.0 KiB    (2 items)  ~/Library/Logs/DiagnosticReports
+  └── Total: 16.0 KiB  (2 items)
+
+❯ Developer caches [medium risk]
+  Note: Usually safe to regenerate, but the next build, package install, or simulator launch may be slower.
+  ├── 237.9 MiB   (1 item)  ~/.npm/_cacache
+  ├── 55.2 MiB    (1 item)  ~/Library/Caches/Homebrew
+  ├── 111.0 MiB   (1 item)  ~/Library/Caches/go-build
+  ├── 14.9 MiB    (1 item)  ~/Library/Caches/pip
+  ├── empty       (1 item)  ~/Library/Developer/CoreSimulator
+  └── Total: 419.0 MiB  (5 items)
+
+Dry-run cleanup script written to: clean.sh
+All rm -rf lines are commented. Review, edit, and run it yourself only if you are confident.
+
+== Skipped optional groups ==
+  Old Xcode archives: skipped. Use --include-xcode-archives to include Organizer archives older than the threshold.
+  Downloads older than threshold: skipped. Use --include-downloads to include ~/Downloads.
+  Trash: skipped. Use --empty-trash to include ~/.Trash.
+  Docker cleanup: skipped. Use --include-docker to prune Docker caches and stopped resources.
+
+📊 Final Summary
+────────────────────────────────────────────────────────
+Can be reclaimed:          25 items      496.7 MiB
+Actually moved:             0 items            0 B
+────────────────────────────────────────────────────────
+
+Review the paths above. If they look safe, run:
+  ./mac-cleaner.sh --execute
+```
+
+For a full path-by-path review of everything found:
 
 ```bash
 mac-cleaner --show-files
 ```
 
-For a guided flow:
+For a guided setup flow:
 
 ```bash
 mac-cleaner --interactive
 ```
 
-When the plan looks safe:
+When you are ready to execute the cleanup:
 
 ```bash
 mac-cleaner --execute
 ```
 
-Execute mode shows each group again, asks `y/N/q`, and defaults to No. Approved files are moved to `~/.Trash/mac-cleaner-*`, not permanently deleted.
+Execute mode shows each group again, prints its specific files, and prompts for your approval (`y/N/q`). Approved files are safely moved to `~/.Trash/mac-cleaner-*` (they are not permanently deleted).
 
 ## Common Options
 
 ```bash
-mac-cleaner --verbose
-mac-cleaner --show-files
-mac-cleaner --interactive
+mac-cleaner --verbose                       # Grouped overview of folders and sizes (tree style)
+mac-cleaner --show-files                     # Print every single matched file path
+mac-cleaner --interactive                  # Guided interactive setup
+mac-cleaner --no-color                     # Disable colorized console output
 mac-cleaner --dry-run --older-than 30 --include-downloads --verbose
-mac-cleaner --clean-log
-mac-cleaner --execute --empty-trash
-mac-cleaner --execute --include-docker
+mac-cleaner --clean-log                    # Clear script's persistent log file
+mac-cleaner --execute --empty-trash        # Execute and empty ~/.Trash
+mac-cleaner --execute --include-docker      # Run Docker build/system prunes
 mac-cleaner --execute --include-xcode-archives
 ```
 
@@ -89,15 +142,17 @@ mac-cleaner --execute --include-xcode-archives
 
 ## Review Script
 
-Dry-run mode writes a review script with commented commands:
+Dry-run mode writes a `clean.sh` review script with commented commands. Non-destructive metadata, titles, and sizes are prefixed with a double-hash `##`, while actual destructive command lines are commented with a single `#`:
 
 ```bash
-# == User cache contents older than threshold [low risk] ==
-# Size: 4.0 KB
+## == User cache contents older than threshold [low risk] ==
+## Size: 4.0 KB
 # rm -rf -- /Users/you/Library/Caches/example
 ```
 
-Nothing in this file runs until you edit it yourself. The built-in `--execute` mode is safer than running the generated script because it moves files to Trash first.
+This layout allows you to open `clean.sh` in any modern editor (like VS Code, Cursor, Xcode), select the blocks of files you approve, and press **Cmd + /** (or **Ctrl + /**) to quickly uncomment only the `rm -rf` command lines, keeping titles and size warnings safely commented.
+
+Nothing in this file runs until you review and execute it. Note that the built-in `--execute` mode is safer than running the generated script because it moves files to Trash instead of immediately deleting them.
 
 ## Configuration
 

@@ -16,3 +16,4 @@ clean-*.sh
 mac-cleaner-plan.*
 mac-cleaner-groups.*
 mac-cleaner-skipped.*
+temp_*

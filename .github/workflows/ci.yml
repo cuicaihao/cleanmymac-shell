@@ -1,7 +1,6 @@
 name: CI
 
 on:
-  pull_request:
   push:
     branches:
       - main
@@ -9,6 +8,13 @@ on:
       - "**/*.md"
       - "**/*.webp"
       - "LICENSE"
+      - ".gitignore"
+  pull_request:
+    paths-ignore:
+      - "**/*.md"
+      - "**/*.webp"
+      - "LICENSE"
+      - ".gitignore"
 
 permissions:
   contents: read
@@ -25,11 +31,6 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-
-      - name: Install ShellCheck
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y shellcheck
 
       - name: Run checks
         run: make check
