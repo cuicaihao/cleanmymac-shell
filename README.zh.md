@@ -39,7 +39,7 @@ mac-cleaner --verbose
 Dry-run 模式会以精美的格式打印清理计划的层级树，并写入一个已注释的 `clean.sh` 审查脚本：
 
 ```text
-✨ mac-cleaner v1.0.0
+✨ mac-cleaner v1.2.0
 ────────────────────────────────────────────────────────
 Mode:          Dry Run (Safe mode, preview only)
 Log File:      ~/.local/state/mac-cleaner/mac-cleaner.log
@@ -106,6 +106,12 @@ mac-cleaner --show-files
 mac-cleaner --interactive
 ```
 
+如需查找占用空间较大的个人文件：
+
+```bash
+mac-cleaner large-files --min-size 500M --older-than 30
+```
+
 当你确认计划安全，准备执行清理时：
 
 ```bash
@@ -122,6 +128,12 @@ mac-cleaner --show-files                     # 打印扫描到的每一个具体
 mac-cleaner --interactive                  # 引导式交互配置与确认
 mac-cleaner --no-color                     # 禁用终端彩色输出
 mac-cleaner --dry-run --older-than 30 --include-downloads --verbose
+mac-cleaner large-files --min-size 1G --older-than 90
+mac-cleaner dev-clean --verbose
+mac-cleaner dev-clean --include-brew
+mac-cleaner applications --output apps.md
+mac-cleaner startup --output startup.md
+mac-cleaner uninstall /Applications/AppName.app
 mac-cleaner --clean-log                    # 清空工具自身的历史日志文件
 mac-cleaner --execute --empty-trash        # 执行清理并清空系统垃圾桶 (~/.Trash)
 mac-cleaner --execute --include-docker      # 触发 Docker 缓存与停止资源的 prune 清理
@@ -139,6 +151,62 @@ mac-cleaner --execute --include-xcode-archives
 - 可选的 `~/.Trash` 内容。
 - 可选的 Docker builder 和 system prune。
 - 可选的旧 Xcode Organizer archives。
+
+## 大文件扫描
+
+`large-files` 命令会扫描常见用户内容目录（`Desktop`、`Documents`、`Downloads`、`Movies`、`Music` 和 `Pictures`），找出超过指定大小且早于时间阈值的文件。
+
+```bash
+mac-cleaner large-files --min-size 500M --older-than 30
+mac-cleaner large-files --execute
+```
+
+大文件会被视为高风险个人数据。Dry-run 模式按大小列出匹配文件；执行模式会在移动每个文件到恢复目录前逐个询问。
+
+## 开发工具清理
+
+`dev-clean` 命令先从编辑器扩展清理开始。它会扫描 VS Code 和 Cursor 的扩展目录，为每个扩展保留最近修改的一个版本，并列出旧版本供你审查。它也会以报告形式展示已安装的 iOS Simulator runtimes。Homebrew cleanup 审查需要显式添加 `--include-brew`，并且只会运行 `brew cleanup -n`。
+
+```bash
+mac-cleaner dev-clean --verbose
+mac-cleaner dev-clean --include-brew
+mac-cleaner dev-clean --execute
+```
+
+旧扩展版本会被视为中风险项目；执行模式会将其移动到恢复目录。Homebrew cleanup 和 simulator runtimes 仍然仅报告；此命令不会运行永久性的 `brew cleanup`，也不会删除 simulator runtimes。
+
+## 应用报告
+
+`applications` 命令会先盘点已安装 app，帮助你决定哪些 app 值得进一步检查或移除。它默认扫描 `/Applications` 和 `~/Applications`，报告大小与 bundle 元数据，也可以写出 Markdown 报告供审查。
+
+```bash
+mac-cleaner applications
+mac-cleaner applications --output apps.md
+mac-cleaner applications --stale-days 180 --min-size 1G
+```
+
+报告包含 app 名称、版本、Apparent Size、Disk Usage、安装日期、最近打开日期（当 Spotlight 元数据可用时）、修改日期、Bundle ID、备注、检查命令和路径。Apparent Size 是文件内容大小之和；Disk Usage 是实际磁盘占用，并用于判断大型 app。备注会标记可能过时、大型 app、最近打开时间未知、Apple/system app 等情况。Markdown 报告还会分出全部 app、可能过时 app、最大 app、最近打开时间未知的 app 等部分。可以使用 `--app-root PATH` 扫描自定义 app 目录。
+
+## 卸载检查
+
+`uninstall` 命令目前仅用于检查。它会读取 app bundle 的 `Info.plist`，报告 app 名称和 Bundle ID，然后列出用户 Library 中可能相关的文件。
+
+```bash
+mac-cleaner uninstall /Applications/AppName.app
+```
+
+它会报告 application support、cache、preferences、containers、group containers、logs 以及 app bundle 本身等匹配项。每个匹配项都会显示被选中的原因，例如 Bundle ID 或 app 名称。它暂时不会移动文件；在匹配规则被验证足够保守之前，`--execute` 会被明确拒绝。
+
+## 启动项报告
+
+`startup` 命令目前仅用于报告。它会列出用户 LaunchAgents、全局 LaunchAgents、LaunchDaemons，以及在可读取时列出 Login Items。
+
+```bash
+mac-cleaner startup
+mac-cleaner startup --output startup.md
+```
+
+报告包含 scope、label、program、`RunAtLoad`、`KeepAlive`、可用时的 disabled 状态、修改日期、大小、备注和路径。备注会标记 auto-start、keepalive、system-wide、Apple/system、third-party、recently modified、missing program path 等情况。Markdown 报告会分出全部项目、用户启动项、系统级启动项、auto-start/KeepAlive 项、缺失 program 路径等部分。它不会禁用或删除启动项。
 
 ## 审查脚本
 

@@ -39,7 +39,7 @@ mac-cleaner --verbose
 Dry-run mode prints a beautifully formatted summary and hierarchy tree of candidates, then writes a commented `clean.sh` review script:
 
 ```text
-✨ mac-cleaner v1.0.0
+✨ mac-cleaner v1.2.0
 ────────────────────────────────────────────────────────
 Mode:          Dry Run (Safe mode, preview only)
 Log File:      ~/.local/state/mac-cleaner/mac-cleaner.log
@@ -106,6 +106,12 @@ For a guided setup flow:
 mac-cleaner --interactive
 ```
 
+To find large personal files before deciding what to move:
+
+```bash
+mac-cleaner large-files --min-size 500M --older-than 30
+```
+
 When you are ready to execute the cleanup:
 
 ```bash
@@ -122,6 +128,12 @@ mac-cleaner --show-files                     # Print every single matched file p
 mac-cleaner --interactive                  # Guided interactive setup
 mac-cleaner --no-color                     # Disable colorized console output
 mac-cleaner --dry-run --older-than 30 --include-downloads --verbose
+mac-cleaner large-files --min-size 1G --older-than 90
+mac-cleaner dev-clean --verbose
+mac-cleaner dev-clean --include-brew
+mac-cleaner applications --output apps.md
+mac-cleaner startup --output startup.md
+mac-cleaner uninstall /Applications/AppName.app
 mac-cleaner --clean-log                    # Clear script's persistent log file
 mac-cleaner --execute --empty-trash        # Execute and empty ~/.Trash
 mac-cleaner --execute --include-docker      # Run Docker build/system prunes
@@ -139,6 +151,62 @@ mac-cleaner --execute --include-xcode-archives
 - Optional `~/.Trash` contents.
 - Optional Docker builder and system prune.
 - Optional old Xcode Organizer archives.
+
+## Large Files
+
+The `large-files` command scans common user content folders (`Desktop`, `Documents`, `Downloads`, `Movies`, `Music`, and `Pictures`) for large files older than the age threshold.
+
+```bash
+mac-cleaner large-files --min-size 500M --older-than 30
+mac-cleaner large-files --execute
+```
+
+Large files are treated as high-risk personal data. Dry-run mode lists matching files by size, and execute mode asks before moving each file to the recovery folder.
+
+## Developer Tool Cleanup
+
+The `dev-clean` command starts with editor extension cleanup. It scans VS Code and Cursor extension directories, keeps the most recently modified folder for each extension, and lists older versions for review. It also prints a report-only review of installed iOS Simulator runtimes. Homebrew cleanup review is opt-in with `--include-brew`, which runs `brew cleanup -n` only.
+
+```bash
+mac-cleaner dev-clean --verbose
+mac-cleaner dev-clean --include-brew
+mac-cleaner dev-clean --execute
+```
+
+Old extension versions are treated as medium risk and moved to the recovery folder in execute mode. Homebrew cleanup and simulator runtimes remain report-only; this command does not run permanent `brew cleanup` or remove simulator runtimes.
+
+## Applications Report
+
+The `applications` command inventories installed apps before you decide what to inspect or remove. It scans `/Applications` and `~/Applications` by default, reports size and bundle metadata, and can write a Markdown report for review.
+
+```bash
+mac-cleaner applications
+mac-cleaner applications --output apps.md
+mac-cleaner applications --stale-days 180 --min-size 1G
+```
+
+The report includes app name, version, apparent size, disk usage, installed date, last opened date when Spotlight metadata is available, modified date, Bundle ID, notes, an inspect command, and path. Apparent size is the sum of file content sizes; disk usage is the on-disk footprint and is used for large-app notes. Notes can flag stale apps, large apps, unknown last-opened metadata, and Apple/system apps. The Markdown report also includes sections for all apps, possibly stale apps, largest apps, and apps with unknown last-opened metadata. Use `--app-root PATH` to scan a custom app directory root.
+
+## Uninstall Inspection
+
+The `uninstall` command is inspect-only. It reads the app bundle's `Info.plist`, reports the app name and Bundle ID, then lists likely related files from user Library locations.
+
+```bash
+mac-cleaner uninstall /Applications/AppName.app
+```
+
+It reports matches such as application support folders, caches, preferences, containers, group containers, logs, and the app bundle itself. Each match includes the reason it was selected, such as Bundle ID or app name. It does not move files yet; `--execute` is intentionally refused until the matching rules are proven conservative.
+
+## Startup Items Report
+
+The `startup` command is report-only. It lists user LaunchAgents, global LaunchAgents, LaunchDaemons, and Login Items when they can be read.
+
+```bash
+mac-cleaner startup
+mac-cleaner startup --output startup.md
+```
+
+The report includes scope, label, program, `RunAtLoad`, `KeepAlive`, disabled state when available, modified date, size, notes, and path. Notes can flag auto-start, keepalive, system-wide, Apple/system, third-party, recently modified, and missing program paths. The Markdown report is split into all items, user startup items, system-wide items, auto-start/KeepAlive items, and missing program paths. It does not disable or remove startup items.
 
 ## Review Script
 

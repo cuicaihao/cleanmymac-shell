@@ -13,6 +13,8 @@ log/mac-cleaner.log
 # Script-generated plan files
 clean.sh
 clean-*.sh
+apps.md
+startup.md
 mac-cleaner-plan.*
 mac-cleaner-groups.*
 mac-cleaner-skipped.*
